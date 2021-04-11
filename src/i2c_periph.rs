@@ -1,36 +1,120 @@
+use crate::rcc::Rcc;
+pub use crate::stm32::i2c1::RegisterBlock as I2cRegisterBlock;
+
+
+mod sealed {
+    use crate::{
+        stm32::{I2C1, I2C2},
+        gpio::{
+            gpioa::{PA11, PA12},
+            gpiob::{PB6, PB7},
+        },
+    };
+
+    pub trait PeriphSealed { }
+    pub trait PinSealed { }
+
+    impl PeriphSealed for I2C1 { }
+    impl PeriphSealed for I2C2 { }
+
+    impl<T> PinSealed for PA11<T> { }
+    impl<T> PinSealed for PA12<T> { }
+
+    impl<T> PinSealed for PB6<T> { }
+    impl<T> PinSealed for PB7<T> { }
+}
+
+use crate::stm32::i2c1::RegisterBlock;
+use core::ops::Deref;
+pub trait Instance: Deref<Target = RegisterBlock> + sealed::PeriphSealed {
+    type SDA: PinInstance + sealed::PinSealed;
+    type SCL: PinInstance + sealed::PinSealed;
+    fn setup(&self, rcc: &mut Rcc);
+}
+
+pub trait PinInstance: sealed::PinSealed {
+    fn setup(&self);
+}
+
+impl<T> PinInstance for PA11<T> {
+    fn setup(&self) {
+        self.set_alt_mode(AltFunction::AF6);
+    }
+}
+
+impl<T> PinInstance for PA12<T> {
+    fn setup(&self) {
+        self.set_alt_mode(AltFunction::AF6);
+    }
+}
+
+impl<T> PinInstance for PB6<T> {
+    fn setup(&self) {
+        self.set_alt_mode(AltFunction::AF6);
+    }
+}
+
+impl<T> PinInstance for PB7<T> {
+    fn setup(&self) {
+        self.set_alt_mode(AltFunction::AF6);
+    }
+}
+
 use crate::{
-    stm32::I2C2,
+    stm32::{I2C1, I2C2},
     gpio::{
         gpioa::{PA11, PA12},
+        gpiob::{PB6, PB7},
         Analog,
         AltFunction,
     },
-    rcc::Rcc,
 };
 
-pub struct I2CPeripheral {
-    i2c: I2C2,
-    _sda: PA12<Analog>,
-    _scl: PA11<Analog>,
-}
-
-impl I2CPeripheral {
-    pub fn new(
-        i2c: I2C2,
-        sda: PA12<Analog>,
-        scl: PA11<Analog>,
-        rcc: &mut Rcc,
-    ) -> Self {
-        // TODO: Why doesn't this return new types?
-        sda.set_alt_mode(AltFunction::AF6);
-        scl.set_alt_mode(AltFunction::AF6);
-
+impl Instance for I2C2 {
+    type SDA = PA12<Analog>;
+    type SCL = PA11<Analog>;
+    fn setup(&self, rcc: &mut Rcc) {
         // Enable clock for I2C
         rcc.rb.apbenr1.modify(|_, w| w.i2c2en().set_bit());
 
         // Reset I2C
         rcc.rb.apbrstr1.modify(|_, w| w.i2c2rst().set_bit());
         rcc.rb.apbrstr1.modify(|_, w| w.i2c2rst().clear_bit());
+    }
+}
+
+impl Instance for I2C1 {
+    type SDA = PB7<Analog>;
+    type SCL = PB6<Analog>;
+    fn setup(&self, rcc: &mut Rcc) {
+        // Enable clock for I2C
+        rcc.rb.apbenr1.modify(|_, w| w.i2c1en().set_bit());
+
+        // Reset I2C
+        rcc.rb.apbrstr1.modify(|_, w| w.i2c1rst().set_bit());
+        rcc.rb.apbrstr1.modify(|_, w| w.i2c1rst().clear_bit());
+    }
+}
+
+pub struct I2CPeripheral<P: Instance> {
+    i2c: P,
+    _sda: P::SDA,
+    _scl: P::SCL,
+}
+
+impl<P: Instance> I2CPeripheral<P> {
+    pub fn new(
+        i2c: P,
+        sda: P::SDA,
+        scl: P::SCL,
+        rcc: &mut Rcc,
+        address: u8,
+    ) -> Self {
+        // TODO: Why doesn't this return new types?
+        sda.setup();
+        scl.setup();
+
+        i2c.setup(rcc);
 
         // Make sure the I2C unit is disabled so we can configure it
         i2c.cr1.modify(|_, w| w.pe().clear_bit());
@@ -54,7 +138,7 @@ impl I2CPeripheral {
         //     * OA1MODE
         //     * OA1EN
         i2c.oar1.modify(|_, w| {
-            unsafe { w.oa1_7_1().bits(0x69) }
+            unsafe { w.oa1_7_1().bits(address) }
             .oa1mode().clear_bit() // 7 bit address
             .oa1en().set_bit()
         });
@@ -90,7 +174,7 @@ impl I2CPeripheral {
 
     // TODO(AJM): Remove before release
     #[inline(always)]
-    pub fn borrow_pac(&self) -> &I2C2 {
+    pub fn borrow_pac(&self) -> &I2cRegisterBlock {
         &self.i2c
     }
 
