@@ -270,12 +270,71 @@ impl<P: Instance> I2CPeripheral<P> {
         })
     }
 
+    pub fn match_address_read(&mut self) -> impl Future<Output=()> + '_ {
+        poll_fn(move |_| {
+            if self.check_addr_match(TransferDir::Read) {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+    }
+
     pub fn get_written_byte(&self) -> impl Future<Output=u8> + '_ {
         let i2cpac = self.borrow_pac();
 
         poll_fn(move |_| {
             if i2cpac.isr.read().rxne().bit_is_set() {
                 Poll::Ready(i2cpac.rxdr.read().rxdata().bits())
+            } else {
+                Poll::Pending
+            }
+        })
+    }
+
+    pub fn send_read_byte(&mut self, data: u8) -> impl Future<Output=()> + '_ {
+        let i2cpac = self.borrow_pac();
+
+        poll_fn(move |_| {
+            if i2cpac.isr.read().txis().bit_is_set() {
+            i2cpac
+                .txdr
+                .modify(|_, w| unsafe {
+                    w.txdata().bits(data)
+                });
+
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+    }
+
+    pub fn wait_for_stop(&mut self) -> impl Future<Output=()> + '_ {
+        poll_fn(move |_| {
+            let i2cpac = self.borrow_pac();
+
+            let isr = i2cpac.isr.read();
+
+            // Is the controller asking us for more data still?
+            if isr.txis().bit_is_set() {
+                self.nak();
+                // sprkt_log!(error, "asked for more read when stop expected!");
+                i2cpac.txdr.modify(|_, w| unsafe { w.txdata().bits(0) });
+            }
+
+            // Is the controller giving us more data still?
+            if isr.rxne().bit_is_clear() {
+                self.nak();
+                // sprkt_log!(error, "got write when stop expected!");
+                let _ = i2cpac.rxdr.read().rxdata().bits();
+            }
+
+            // Is the controller finally done?
+            if i2cpac.isr.read().stopf().bit_is_set() {
+                i2cpac.icr.write(|w| w.stopcf().set_bit());
+                // sprkt_log!(info, "got stop.");
+                Poll::Ready(())
             } else {
                 Poll::Pending
             }
