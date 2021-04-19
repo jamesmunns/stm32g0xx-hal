@@ -22,7 +22,7 @@ nb = "1.0.0"
 # TODO(AJM): Remove once I figure out how to steal
 # the correct parts of futures
 [dependencies.cassette]
-version = "0.1"
+version = "0.2.1"
 git = "https://github.com/jamesmunns/cassette"
 branch = "main"
 
