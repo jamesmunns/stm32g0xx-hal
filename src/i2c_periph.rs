@@ -1,6 +1,8 @@
 use crate::rcc::Rcc;
 pub use crate::stm32::i2c1::RegisterBlock as I2cRegisterBlock;
-
+use cassette::futures::poll_fn;
+use core::task::Poll;
+use core::future::Future;
 
 mod sealed {
     use crate::{
@@ -26,6 +28,13 @@ mod sealed {
 
 use crate::stm32::i2c1::RegisterBlock;
 use core::ops::Deref;
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum TransferDir {
+    Read,
+    Write,
+}
+
 pub trait Instance: Deref<Target = RegisterBlock> + sealed::PeriphSealed {
     type SDA: PinInstance + sealed::PinSealed;
     type SCL: PinInstance + sealed::PinSealed;
@@ -178,6 +187,64 @@ impl<P: Instance> I2CPeripheral<P> {
         &self.i2c
     }
 
+    pub fn check_addr_match(&self, direction: TransferDir) -> bool {
+        let i2cpac = self.borrow_pac();
+
+        if !i2cpac.isr.read().addr().bit_is_set() {
+            return false;
+        }
+
+        // TODO(AJM): re-enable this when we support registering more than
+        // one address!
+        //
+        // if i2cpac.isr.read().addcode().bits() != self.current_i2c_addr {
+        //     self.nak();
+        //     self.ack_addr_match();
+        //     sprkt_log!(error, "Address Mismatch!");
+        //     return false;
+        // }
+
+        // 0: Write transfer, slave enters receiver mode.
+        // 1: Read transfer, slave enters transmitter mode.
+        let dir = if i2cpac.isr.read().dir().bit_is_set() {
+            TransferDir::Read
+        } else {
+            TransferDir::Write
+        };
+
+        // Is this in the direction we expected?
+        if dir != direction {
+            self.nak();
+            self.ack_addr_match();
+            // sprkt_log!(error, "Direction Mismatch!");
+            false
+        } else {
+            // Clear a NAK
+            i2cpac.cr2.write(|w| w.nack().clear_bit());
+
+            // sprkt_log!(info, "Acked a correct address+direction");
+            if direction == TransferDir::Read {
+                i2cpac.isr.write(|w| w.txe().set_bit());
+            }
+            self.ack_addr_match();
+            true
+        }
+    }
+
+    pub fn nak(&self) {
+        let i2cpac = self.borrow_pac();
+
+        // Command a NAK
+        i2cpac.cr2.write(|w| w.nack().set_bit());
+    }
+
+    pub fn ack_addr_match(&self) {
+        let i2cpac = self.borrow_pac();
+
+        // Clear the ADDR match flag
+        i2cpac.icr.write(|w| w.addrcf().set_bit());
+    }
+
     pub fn is_enabled(&self) -> bool {
         self.i2c.cr1.read().pe().bit_is_set()
     }
@@ -188,5 +255,89 @@ impl<P: Instance> I2CPeripheral<P> {
 
     pub unsafe fn enable(&self) {
         self.i2c.cr1.modify(|_, w| w.pe().set_bit());
+    }
+}
+
+// These are all the future functions
+impl<P: Instance> I2CPeripheral<P> {
+    pub fn match_address_write(&mut self) -> impl Future<Output=()> + '_ {
+        poll_fn(move |_| {
+            if self.check_addr_match(TransferDir::Write) {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+    }
+
+    pub fn match_address_read(&mut self) -> impl Future<Output=()> + '_ {
+        poll_fn(move |_| {
+            if self.check_addr_match(TransferDir::Read) {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+    }
+
+    pub fn get_written_byte(&self) -> impl Future<Output=u8> + '_ {
+        let i2cpac = self.borrow_pac();
+
+        poll_fn(move |_| {
+            if i2cpac.isr.read().rxne().bit_is_set() {
+                Poll::Ready(i2cpac.rxdr.read().rxdata().bits())
+            } else {
+                Poll::Pending
+            }
+        })
+    }
+
+    pub fn send_read_byte(&mut self, data: u8) -> impl Future<Output=()> + '_ {
+        let i2cpac = self.borrow_pac();
+
+        poll_fn(move |_| {
+            if i2cpac.isr.read().txis().bit_is_set() {
+            i2cpac
+                .txdr
+                .modify(|_, w| unsafe {
+                    w.txdata().bits(data)
+                });
+
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+    }
+
+    pub fn wait_for_stop(&mut self) -> impl Future<Output=()> + '_ {
+        poll_fn(move |_| {
+            let i2cpac = self.borrow_pac();
+
+            let isr = i2cpac.isr.read();
+
+            // Is the controller asking us for more data still?
+            if isr.txis().bit_is_set() {
+                self.nak();
+                // sprkt_log!(error, "asked for more read when stop expected!");
+                i2cpac.txdr.modify(|_, w| unsafe { w.txdata().bits(0) });
+            }
+
+            // Is the controller giving us more data still?
+            if isr.rxne().bit_is_clear() {
+                self.nak();
+                // sprkt_log!(error, "got write when stop expected!");
+                let _ = i2cpac.rxdr.read().rxdata().bits();
+            }
+
+            // Is the controller finally done?
+            if i2cpac.isr.read().stopf().bit_is_set() {
+                i2cpac.icr.write(|w| w.stopcf().set_bit());
+                // sprkt_log!(info, "got stop.");
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
     }
 }
