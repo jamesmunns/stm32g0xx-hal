@@ -244,21 +244,30 @@ macro_rules! spi {
             fn read(&mut self) -> nb::Result<u8, Error> {
                 let sr = self.spi.sr.read();
 
-                Err(if sr.ovr().bit_is_set() {
-                    nb::Error::Other(Error::Overrun)
-                } else if sr.modf().bit_is_set() {
-                    nb::Error::Other(Error::ModeFault)
-                } else if sr.crcerr().bit_is_set() {
-                    nb::Error::Other(Error::Crc)
-                } else if sr.rxne().bit_is_set() {
-                    // NOTE(read_volatile) read only 1 byte (the svd2rust API only allows
-                    // reading a half-word)
-                    return Ok(unsafe {
-                        ptr::read_volatile(&self.spi.dr as *const _ as *const u8)
-                    });
-                } else {
-                    nb::Error::WouldBlock
-                })
+                return Ok(0);
+
+                // TODO(AJM): Removed due to use with Smartleds
+                // causing overrun conditions.
+                //
+                // I should instead find a more flexible way to handle this,
+                // or see if these changes have been fixed upstream.
+                //
+                // Err(if sr.ovr().bit_is_set() {
+                //     nb::Error::Other(Error::Overrun)
+                // } else if sr.modf().bit_is_set() {
+                //     nb::Error::Other(Error::ModeFault)
+                // } else if sr.crcerr().bit_is_set() {
+                //     nb::Error::Other(Error::Crc)
+                // } else if sr.rxne().bit_is_set() {
+                //     // NOTE(read_volatile) read only 1 byte (the svd2rust API only allows
+                //     // reading a half-word)
+                //     return Ok(unsafe {
+                //         ptr::read_volatile(&self.spi.dr as *const _ as *const u8)
+                //     });
+                // } else {
+                //     return Ok(0);
+                //     // nb::Error::WouldBlock
+                // })
             }
 
             fn send(&mut self, byte: u8) -> nb::Result<(), Error> {
