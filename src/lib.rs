@@ -57,6 +57,9 @@ pub mod time;
 pub mod timer;
 pub mod watchdog;
 
+// TODO(AJM): Re-integrate?
+pub mod i2c_periph;
+
 #[cfg(feature = "device-selected")]
 mod sealed {
     pub trait Sealed {}

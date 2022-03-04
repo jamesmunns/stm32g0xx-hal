@@ -18,6 +18,7 @@ default-target = "thumbv6m-none-eabi"
 [dependencies]
 cortex-m = "0.7.1"
 nb = "1.0.0"
+cassette = "0.2.3"
 
 [dependencies.stm32g0]
 version = "0.14.0"

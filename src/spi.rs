@@ -242,7 +242,7 @@ macro_rules! spi {
             type Error = Error;
 
             fn read(&mut self) -> nb::Result<u8, Error> {
-                let sr = self.spi.sr.read();
+                let _sr = self.spi.sr.read();
 
                 return Ok(0);
 
