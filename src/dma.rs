@@ -279,7 +279,7 @@ macro_rules! dma {
             impl private::Channel for $Ci {
                 fn ch(&self) -> &stm32::dma::CH {
                     // NOTE(unsafe) $Ci grants exclusive access to this register
-                    unsafe { &(*DMA::ptr()).$chi }
+                    unsafe { &(*DMA::ptr()).$chi() }
                 }
             }
 

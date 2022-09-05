@@ -1,6 +1,9 @@
 #![no_std]
 #![allow(non_camel_case_types)]
 
+// TODO(AJM)
+#![allow(unused_unsafe)]
+
 #[cfg(not(feature = "device-selected"))]
 compile_error!(
     "This crate requires one of the following features enabled: stm32g030, stm32g070, stm32g031, stm32g041, stm32g071, stm32g081"

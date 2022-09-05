@@ -170,30 +170,36 @@ macro_rules! spi {
                 pins.setup();
 
                 spi.cr1.write(|w| unsafe {
-                    w.cpha()
+                    w.cpha() //
                         .bit(mode.phase == Phase::CaptureOnSecondTransition)
-                        .cpol()
+                        .cpol() //
                         .bit(mode.polarity == Polarity::IdleHigh)
-                        .mstr()
+                        .mstr() //
                         .set_bit()
-                        .br()
+                        .br() //
                         .bits(br)
-                        .lsbfirst()
+                        .lsbfirst() //
                         .clear_bit()
-                        .ssm()
+                        .ssm() //
                         .set_bit()
+                        .ssi() //
+                        .set_bit()
+                        .rxonly() //
+                        .clear_bit()
+                        // TODO(AJM): What this?
+                        // .dff()
+                        // .clear_bit()
+                        .bidimode() //
+                        .clear_bit()
                         .ssi()
                         .set_bit()
-                        .rxonly()
-                        .clear_bit()
-                        .dff()
-                        .clear_bit()
-                        .bidimode()
-                        .clear_bit()
-                        .ssi()
+                        .spe() //
                         .set_bit()
-                        .spe()
-                        .set_bit()
+
+                        // crcl
+                        // crcnext
+                        // crcen
+                        // bidioe
                 });
 
                 Spi { spi, pins }
@@ -235,23 +241,24 @@ macro_rules! spi {
             type Error = Error;
 
             fn read(&mut self) -> nb::Result<u8, Error> {
-                let sr = self.spi.sr.read();
+                let _sr = self.spi.sr.read();
+                Ok(0)
 
-                Err(if sr.ovr().bit_is_set() {
-                    nb::Error::Other(Error::Overrun)
-                } else if sr.modf().bit_is_set() {
-                    nb::Error::Other(Error::ModeFault)
-                } else if sr.crcerr().bit_is_set() {
-                    nb::Error::Other(Error::Crc)
-                } else if sr.rxne().bit_is_set() {
-                    // NOTE(read_volatile) read only 1 byte (the svd2rust API only allows
-                    // reading a half-word)
-                    return Ok(unsafe {
-                        ptr::read_volatile(&self.spi.dr as *const _ as *const u8)
-                    });
-                } else {
-                    nb::Error::WouldBlock
-                })
+                // Err(if sr.ovr().bit_is_set() {
+                //     nb::Error::Other(Error::Overrun)
+                // } else if sr.modf().bit_is_set() {
+                //     nb::Error::Other(Error::ModeFault)
+                // } else if sr.crcerr().bit_is_set() {
+                //     nb::Error::Other(Error::Crc)
+                // } else if sr.rxne().bit_is_set() {
+                //     // NOTE(read_volatile) read only 1 byte (the svd2rust API only allows
+                //     // reading a half-word)
+                //     return Ok(unsafe {
+                //         ptr::read_volatile(&self.spi.dr as *const _ as *const u8)
+                //     });
+                // } else {
+                //     nb::Error::WouldBlock
+                // })
             }
 
             fn send(&mut self, byte: u8) -> nb::Result<(), Error> {
